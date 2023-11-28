@@ -1,0 +1,118 @@
+# 380 Lab2 -- Secure(?) Chat
+
+## *Due:* Tharsday, Dec 7th @ 11:59pm
+
+## Synopsis
+
+Write a chat program in C/C++ that provides:
+
+* Authentication of correspondents
+* Message secrecy (encryption)
+* Message integrity (MACs)
+
+Given that this program processes formatted input from a network, you should
+also focus on software security.
+
+### Goals for the student
+
+* Gain familiarity using cryptographic libraries (`openssl`).
+* Experience in protocol design.
+* Understanding various issues in network programming.
+* How to avoid common software security issues.
+
+## Important Notes
+
+I would like you all to collaborate on these projects in small teams (3-4
+members each).  Please have one member of your group email me the names of the
+group members, and please **use git to collaborate**.  I would like to check
+the commit logs to make sure all members have been contributing.  If you have
+not collaborated with git much, I have some maybe helpful notes [here][scm].
+
+
+## Details
+
+I've given you a skeleton (C/C++) which does very basic chat stuff:  Depending
+on the invocation, it will listen for connections, or make one with another
+host.  Beyond that, it just sends and receives text, displaying each message
+in a log window.  It will be up to you to:
+
+* Write some sort of handshake protocol to setup ephemeral keys (your protocol
+  should have [perfect forward secrecy][forward]!).
+* Mutual authentication, using public key cryptography.
+* After authentication, each message should be encrypted and tagged with a
+  message authentication code.  You may also want to take measures to prevent
+  replay attacks.
+
+I think [SSH][ssh] will be a good model on which to base your protocol.  In
+particular, don't use PKI (public-key infrastructure, with certificates and
+such), and instead assume that communicating parties have already exchanged
+public keys.  However, implementing deniable authentication would be a nice
+touch (and is something SSH does not provide).
+
+
+### Compiling the skeleton
+
+You will need:
+
+* [ncurses](https://en.wikipedia.org/wiki/Ncurses) and its header files.  If
+  you are on linux/BSD, you might have to get a package like `ncurses-devel`
+  or similar, although some distributions (e.g. Arch Linux) will include
+  header files in the normal package (no `-devel` needed).
+* [readline](https://en.wikipedia.org/wiki/Readline) and the header files
+  (`readline-devel`).
+* [openssl][OpenSSL] and headers (`openssl-devel`).
+* [gmp][GMP] and its header files (`gmp-devel`).
+
+Running `make` should just work on most linux or BSD systems if you have all
+the above installed, but let me know.  I'm confident you could also get this
+working just fine on a mac via [homebrew](https://brew.sh/).  If you are using
+windows, maybe consider doing this in a virtual machine, but I'd be interested
+to hear about it if you do get it working natively there.
+
+Once you do have the skeleton compiled, you can run `./chat -h` and see a list
+of options.
+
+### Other notes
+
+There is a directory `openssl-examples` that demonstrates how to get most of
+the functionality you'll need from `openssl`.  However, your professor decided
+to write his own Diffie-Hellman key exchange, as the openssl version was
+somehow even more obfuscated and confusing than usual.  You can see the
+Diffie-Hellman stuff in files `dh.h`,`dh.c`, and you can see some example
+usage in `dh-example.c`.  Note that the function `dhFinal(...)` will also do
+key derivation for you (transforming the Diffie-Hellman value into
+pseudorandom bits that you can use as keys for encryption and MACs).
+
+You might also find the following links helpful.
+
+* [network programming guide](https://beej.us/guide/bgnet/)
+* [ncurses examples](https://tldp.org/HOWTO/NCURSES-Programming-HOWTO/)
+* programming with threads:
+    + `man 3 pthread_cond_wait`
+    + `man 3 pthread_cond_broadcast`
+    + `man 3 pthread_mutex_lock`
+* If you ever need to manipulate `mpz_t` types, read `info gmp`.
+  Alternatively, you can read [the manual online](https://gmplib.org/manual/).
+
+## Submission Procedure
+
+Have one of your group members send me your repository.  If you have it hosted
+somewhere, you can just send a link, but if you've done things on your own
+servers, just make me an archive like this:
+
+~~~~~~~~~~~{.bash}
+$ cd /path/to/your/p1/../
+$ tar -czf p1.tgz p1/
+~~~~~~~~~~~~~~~~~~
+
+Importantly, there should be a `.git/` folder in there containing the commit
+history.
+
+<!--  links  -->
+
+[GMP]: http://gmplib.org/
+[libressl]: https://www.libressl.org/
+[OpenSSL]: http://www.openssl.org/
+[scm]: http://www-cs.ccny.cuny.edu/~wes/CSC103/scm.html#collaborate
+[forward]: https://en.wikipedia.org/wiki/Forward_secrecy
+[ssh]: https://en.wikipedia.org/wiki/Ssh

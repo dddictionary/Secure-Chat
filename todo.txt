@@ -1,0 +1,20 @@
+Come up with minimal examples to demonstrate the following via openssl:
+
+* PKE and signatures (RSA should be fine)
+  https://gist.github.com/irbull/08339ddcd5686f509e9826964b17bb59
+  https://gist.github.com/c9n/3751453d5dc1466829c3
+* DHKX
+* AES (CBC or CTR)
+
+How to choose name for correspondent?  Could get it from local contact file,
+or it could be sent as part of the handshake / hello message, or it could just
+be set from local command line, but it seems that the correspondent should be
+able to choose.
+
+
+Thread links
+------------
+https://stackoverflow.com/questions/20772476/when-to-use-pthread-condition-variables
+https://stackoverflow.com/questions/25876805/c-how-to-make-threads-communicate-with-each-other
+https://docs.oracle.com/cd/E19455-01/806-5257/6je9h032r/index.html
+

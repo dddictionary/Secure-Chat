@@ -1,0 +1,36 @@
+% 380 Secure Chat Part II
+%
+%
+
+## *Due:* Thursday, Dec 7th @ 11:59pm
+
+
+## Documentation
+
+Each group should prepare a brief document (text please!) that outlines the
+security of their implementation of the chat program.  Please cover at least
+the following:
+
+* Assumptions: e.g., perhaps you assume that communicating parties already
+  have each others' public keys.  You can also include here the types of
+  attacks / resources you assume an adversary has access to.
+* Claims: hopefully this will at least include integrity, confidentiality of
+  messages as well as mutual authentication when both communicating parties
+  are acting honestly, but you should also cover the case of a malicious
+  communicating party (think about the worst thing that could happen if you
+  start a session with someone running a modified, evil version of your chat
+  program).
+
+Note that you can of course adjust your claims depending on the resources
+available to an adversary.
+
+## Swap and analyze
+
+Please find another group to trade projects with (I can help if needed).
+Provide each other with the complete source and any documentation you have,
+including the security claims as mentioned above.  Review the other team's
+work with your group and verify / challenge their security claims.  Scrutinize
+their protocol of course, but also look for any software security issues
+(e.g., buffer overruns).  Prepare a text file with your analysis and any
+vulnerabilities you found and submit it to me before the end of the term.
+
