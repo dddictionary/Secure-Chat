@@ -21,6 +21,25 @@ using std::deque;
 #include <utility>
 using std::pair;
 #include "dh.h"
+// Our imports for TCP/IP 3 way handshake
+#include <random>
+#include <cstring>
+#include <openssl/aes.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <ctime>
+
+// create variables to store public and secret keys
+mpz_t A_pk;
+mpz_t A_sk;
+mpz_t B_pk;
+// diffie hellman 
+char hmac_key[256+1];
+unsigned char aes_key[256+1];
+
+// Initialization vector (IV) for AES generated from SYN request
+unsigned char iv[16+1];
 
 static pthread_t trecv;     /* wait for incoming messagess and post to queue */
 void* recvMsg(void*);       /* for trecv */
@@ -39,6 +58,11 @@ static pthread_mutex_t qmx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t qcv = PTHREAD_COND_INITIALIZER;
 
 /* XXX different colors for different senders */
+
+// TODO: generate the IV from the incoming SYN request
+unsigned char* generateIV(unsigned long input) {
+};
+
 
 /* record chat history as deque of strings: */
 static deque<string> transcript;
@@ -85,9 +109,83 @@ int initServerNet(int port)
 	close(listensock);
 	fprintf(stderr, "connection made, starting session...\n");
 	/* at this point, should be able to send/recv on sockfd */
+
+	/* TODO: Set up TCP Handshake, Server Response */
+	// Server sends back SYN+1, ACK.
+	serverSYNACK();
+
 	return 0;
 }
 
+void serverSYNACK() {
+	// TODO: Implement Server Resopnse
+	// Server sends back SYN+1, ACK.
+	
+	char synBuffer[11];
+	// read SYN from client and store into buffer
+	recv(sockfd, synBuffer, 10, 0);
+	// This is now SYN+1
+	int SYN = atoi(synBuffer) + 1;
+	// convert SYN+1 to string
+	string SYNString = std::to_string(SYN);
+	//attach "ACK" to SYN
+	SYNString += "ACK";
+	// convert SYN+1ACK to char array aka a c style string.
+	const char* SYN_c_str = SYNString.c_str();
+
+	//generate IV from SYN
+	int SYNIV = atoi(synBuffer);
+	memcpy(iv, generateIV(SYNIV), 16);
+
+	// send SYN+1ACK to client
+	//check to see if SYN is between 32 bit unsigned int range.
+	if (SYN < 0 || SYN > std::pow(2, 32) - 1) {
+		error("Server was not able to receive SYN from client. SYN is not within 32 bit unsigned int range.");
+	}
+
+	send(sockfd, SYN_c_str, strlen(SYN_c_str), 0);
+
+	//receive ACK from client
+	char ackBuf[10];
+	recv(sockfd, ackBuf, 10, 0);
+
+	/*Diffie Hellman KeyGen*/
+
+	//generate private and public keys
+	init("params");
+	NEWZ(a);
+	NEWZ(A);
+	dhGen(a,A);
+
+	//send public key
+	char toSend[1024];
+	mpz_get_str(toSend, 16, A);
+	send(sockfd, toSend, strlen(toSend), 0);
+
+	//set the keys
+	mpz_set(A_pk, A);
+	mpz_set(A_sk, a);
+
+	//receive the users public key
+	char publicKey[1024];
+	recv(sockfd, publicKey, 1024, 0);
+	mpz_set_str(B_pk, publicKey, 16);
+
+	//generate shared secret
+	const size_t keyLen = 256;
+	unsigned char key[keyLen];
+	dhFinal(A_sk, A_pk, B_pk, key, keyLen);
+	char dhf[512+1];
+	for (int i = 0; i < keyLen; i++) {
+		sprintf(dhf + i * 2, "%02x", key[i]);
+	}
+
+	//generate hmac key
+	memcpy(hmac_key, dhf, 256);
+	//generate aes key
+	memcpy(aes_key, dhf + 256, 256);
+
+}
 
 static int initClientNet(char* hostname, int port)
 {
@@ -108,8 +206,97 @@ static int initClientNet(char* hostname, int port)
 	if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0)
 		error("ERROR connecting");
 	/* at this point, should be able to send/recv on sockfd */
+
+	//TODO: Set up TCP Handshake, Client Request
+	// Client sends SYN
+	unsigned long ISN = clientSYN();
+	//Client sends ACK
+	clientACK(ISN);
 	return 0;
 }
+
+unsigned long clientSYN(){
+	//send client SYN
+	//generate ISN (initial sequence number) 
+	//max it can be is 32 bit unsigned int
+	srand(time(0));
+	unsigned long ISN = rand() % 4294967296;
+
+	//generate aes key
+	memcpy(iv, generateIV(ISN), 16);
+
+	//convert ISN to string
+	string ISNString = std::to_string(ISN);
+	char const *ISN_c_str = ISNString.c_str();
+
+	//send ISN to server as SYN
+	send(sockfd, ISN_c_str, strlen(ISN_c_str), 0);
+
+	return ISN;
+}
+
+void clientACK(unsigned long ISN) {
+	//send ACK
+	//receive SYN+1ACK from server
+	char synACKBuffer[14];
+	recv(sockfd, synACKBuffer, 14, 0);
+
+	//convert the buffer into a string
+	string synACK_str(synACKBuffer);
+
+	//remove ACK from the string
+	size_t indexOfACK = synACK_str.find("ACK");
+	while (indexOfACK != std::string::npos) {
+		synACK_str.erase(indexOfACK, 3);
+		indexOfACK = synACK_str.find("ACK");
+	}
+
+	//convert buffer to int
+	int synACK = stoi(synACK_str) - 1;
+
+	//if the SYN = ISN, then the server is authenticated
+	if (synACK == ISN) {
+		send(sockfd, "ACK", 3, 0);
+	} else {
+		error("Client failed to receive SYN+1, ACK from server. Could not authenticate.");
+	}
+	/*Diffie Hellman stuff*/
+
+	//generate private and public keys
+	init("params");
+	NEWZ(a);
+	NEWZ(A);
+	dhGen(a,A);
+
+	//receive public key
+	char buf[1024];
+	recv(sockfd, buf, strlen(buf), 0);
+
+	//set the keys
+	mpz_set(A_pk, A);
+	mpz_set(A_sk, a);
+	mpz_set_str(B_pk, buf, 16);
+
+	//send public key
+	char toSend[1024];
+	mpz_get_str(toSend, 16, A);
+	send(sockfd, toSend, strlen(toSend), 0);
+
+	//generate shared secret
+	const size_t keyLen = 256;
+	unsigned char key[keyLen];
+	dhFinal(A_sk, A_pk, B_pk, key, keyLen);
+	char dhf[512+1];
+	for (int i = 0; i < keyLen; i++) {
+		sprintf(dhf + i * 2, "%02x", key[i]);
+	}
+
+	//generate hmac key
+	memcpy(hmac_key, dhf, 256);
+	//generate aes key
+	memcpy(aes_key, dhf + 256, 256);
+}
+
 
 static int shutdownNetwork()
 {
@@ -176,6 +363,23 @@ static void msg_win_redisplay(bool batch, const string& newmsg="", const string&
 	}
 }
 
+//TODO: generate hmac from msg
+char* hmac(char* msg) {
+
+}
+
+//TODO: Encrypt message before sending
+unsigned char* encrypt(char* msg, unsigned char* key, unsigned char* iv) {
+
+}
+
+//TODO: Decrypt message after receiving
+unsigned char* decrypt(unsigned char* msg, unsigned char* key, unsigned char* iv, size_t length) {
+
+}
+
+
+//TODO: encrypt before sending and decrypt after receiving
 static void msg_typed(char *line)
 {
 	string mymsg;
