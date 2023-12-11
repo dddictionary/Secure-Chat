@@ -380,6 +380,7 @@ unsigned char* decrypt(unsigned char* msg, unsigned char* key, unsigned char* iv
 
 
 //TODO: encrypt before sending and decrypt after receiving
+//this is a new comment meant to show an example
 static void msg_typed(char *line)
 {
 	string mymsg;
