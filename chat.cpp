@@ -39,7 +39,7 @@ char hmac_key[256+1];
 unsigned char aes_key[256+1];
 
 // Initialization vector (IV) for AES generated from SYN request
-unsigned char iv[16+1];
+unsigned char iv_val[16+1];
 
 static pthread_t trecv;     /* wait for incoming messagess and post to queue */
 void* recvMsg(void*);       /* for trecv */
@@ -61,7 +61,22 @@ static pthread_cond_t qcv = PTHREAD_COND_INITIALIZER;
 
 // TODO: generate the IV from the incoming SYN request
 unsigned char* generateIV(unsigned long input) {
-};
+	std::mt19937_64 rng(input);
+	std::uniform_int_distribution<int> dist(0,35);
+
+	unsigned char* randomChar = new unsigned char[17];
+
+	for (int i = 0; i < 16; i++) {
+		int randomNum = dist(rng);
+		if (randomNum < 10) {
+			randomChar[i] = '0' + randomNum;
+		} else {
+			randomChar[i] = 'a' + randomNum - 10;
+		}
+	}
+
+	return randomChar;
+}
 
 
 /* record chat history as deque of strings: */
@@ -111,13 +126,7 @@ int initServerNet(int port)
 	/* at this point, should be able to send/recv on sockfd */
 
 	/* TODO: Set up TCP Handshake, Server Response */
-	// Server sends back SYN+1, ACK.
-	serverSYNACK();
 
-	return 0;
-}
-
-void serverSYNACK() {
 	// TODO: Implement Server Resopnse
 	// Server sends back SYN+1, ACK.
 	
@@ -127,23 +136,21 @@ void serverSYNACK() {
 	// This is now SYN+1
 	int SYN = atoi(synBuffer) + 1;
 	// convert SYN+1 to string
-	string SYNString = std::to_string(SYN);
-	//attach "ACK" to SYN
-	SYNString += "ACK";
+	string SYNString = std::to_string(SYN) + "ACK";
 	// convert SYN+1ACK to char array aka a c style string.
 	const char* SYN_c_str = SYNString.c_str();
 
 	//generate IV from SYN
 	int SYNIV = atoi(synBuffer);
-	memcpy(iv, generateIV(SYNIV), 16);
+	memcpy(iv_val, generateIV(SYNIV), 16);
 
 	// send SYN+1ACK to client
 	//check to see if SYN is between 32 bit unsigned int range.
-	if (SYN < 0 || SYN > std::pow(2, 32) - 1) {
+	if (SYN < 0 || SYN > 4294967295) {
 		error("Server was not able to receive SYN from client. SYN is not within 32 bit unsigned int range.");
 	}
 
-	send(sockfd, SYN_c_str, strlen(SYN_c_str), 0);
+	send(sockfd, SYN_c_str, SYNString.length(), 0);
 
 	//receive ACK from client
 	char ackBuf[10];
@@ -160,7 +167,7 @@ void serverSYNACK() {
 	//send public key
 	char toSend[1024];
 	mpz_get_str(toSend, 16, A);
-	send(sockfd, toSend, strlen(toSend), 0);
+	send(sockfd, toSend, 1024, 0);
 
 	//set the keys
 	mpz_set(A_pk, A);
@@ -176,7 +183,7 @@ void serverSYNACK() {
 	unsigned char key[keyLen];
 	dhFinal(A_sk, A_pk, B_pk, key, keyLen);
 	char dhf[512+1];
-	for (int i = 0; i < keyLen; i++) {
+	for (size_t i = 0; i < keyLen; i++) {
 		sprintf(dhf + i * 2, "%02x", key[i]);
 	}
 
@@ -185,6 +192,7 @@ void serverSYNACK() {
 	//generate aes key
 	memcpy(aes_key, dhf + 256, 256);
 
+	return 0;
 }
 
 static int initClientNet(char* hostname, int port)
@@ -209,34 +217,23 @@ static int initClientNet(char* hostname, int port)
 
 	//TODO: Set up TCP Handshake, Client Request
 	// Client sends SYN
-	unsigned long ISN = clientSYN();
-	//Client sends ACK
-	clientACK(ISN);
-	return 0;
-}
-
-unsigned long clientSYN(){
 	//send client SYN
 	//generate ISN (initial sequence number) 
 	//max it can be is 32 bit unsigned int
 	srand(time(0));
-	unsigned long ISN = rand() % 4294967296;
+	unsigned long ISN = rand() % 4294967294 + 0;
 
 	//generate aes key
-	memcpy(iv, generateIV(ISN), 16);
+	memcpy(iv_val, generateIV(ISN), 16);
 
 	//convert ISN to string
 	string ISNString = std::to_string(ISN);
 	char const *ISN_c_str = ISNString.c_str();
 
 	//send ISN to server as SYN
-	send(sockfd, ISN_c_str, strlen(ISN_c_str), 0);
+	send(sockfd, ISN_c_str, ISNString.length(), 0);
+	//Client sends ACK
 
-	return ISN;
-}
-
-void clientACK(unsigned long ISN) {
-	//send ACK
 	//receive SYN+1ACK from server
 	char synACKBuffer[14];
 	recv(sockfd, synACKBuffer, 14, 0);
@@ -248,11 +245,11 @@ void clientACK(unsigned long ISN) {
 	size_t indexOfACK = synACK_str.find("ACK");
 	while (indexOfACK != std::string::npos) {
 		synACK_str.erase(indexOfACK, 3);
-		indexOfACK = synACK_str.find("ACK");
+		indexOfACK = synACK_str.find("ACK", indexOfACK);
 	}
 
 	//convert buffer to int
-	int synACK = stoi(synACK_str) - 1;
+	unsigned long synACK = stoi(synACK_str) - 1;
 
 	//if the SYN = ISN, then the server is authenticated
 	if (synACK == ISN) {
@@ -270,7 +267,7 @@ void clientACK(unsigned long ISN) {
 
 	//receive public key
 	char buf[1024];
-	recv(sockfd, buf, strlen(buf), 0);
+	recv(sockfd, buf, 1024, 0);
 
 	//set the keys
 	mpz_set(A_pk, A);
@@ -280,21 +277,22 @@ void clientACK(unsigned long ISN) {
 	//send public key
 	char toSend[1024];
 	mpz_get_str(toSend, 16, A);
-	send(sockfd, toSend, strlen(toSend), 0);
+	send(sockfd, toSend, 1024, 0);
 
 	//generate shared secret
 	const size_t keyLen = 256;
 	unsigned char key[keyLen];
 	dhFinal(A_sk, A_pk, B_pk, key, keyLen);
 	char dhf[512+1];
-	for (int i = 0; i < keyLen; i++) {
-		sprintf(dhf + i * 2, "%02x", key[i]);
+	for (size_t i = 0; i < keyLen; i++) {
+		sprintf(&dhf[i*2], "%02x", key[i]);
 	}
 
 	//generate hmac key
 	memcpy(hmac_key, dhf, 256);
 	//generate aes key
 	memcpy(aes_key, dhf + 256, 256);
+	return 0;
 }
 
 
@@ -365,16 +363,61 @@ static void msg_win_redisplay(bool batch, const string& newmsg="", const string&
 
 //TODO: generate hmac from msg
 char* hmac(char* msg) {
+	char hmacKey[256+1];
+	strcpy(hmacKey, hmac_key);
+	unsigned char mac[64];
+	memset(mac, 0, 64);
+	char* message = msg;
+	HMAC(EVP_sha512(), hmacKey, strlen(hmacKey), (unsigned char*) message, strlen(message), mac, 0);
+	char* temp = (char*) malloc(129);
+
+	for (size_t i = 0; i < 64; i++) {
+		sprintf(&temp[i*2], "%02x", mac[i]);
+	}
+	
+	return strdup(temp);
 
 }
 
 //TODO: Encrypt message before sending
 unsigned char* encrypt(char* msg, unsigned char* key, unsigned char* iv) {
+	unsigned char* ciphertext = (unsigned char*) malloc(512);
+	memset(ciphertext, 0, 512);
+	size_t len = strlen(msg);
 
+	EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+	if (EVP_EncryptInit_ex(ctx, EVP_aes_256_ctr(), 0, key, iv) != 1) {
+		ERR_print_errors_fp(stderr);
+	}
+
+	int numWritten;
+
+	if (EVP_EncryptUpdate(ctx, ciphertext, &numWritten, (unsigned char*) msg, len) != 1) {
+		ERR_print_errors_fp(stderr);
+	}
+
+	EVP_CIPHER_CTX_free(ctx);
+	return ciphertext;
 }
 
 //TODO: Decrypt message after receiving
-unsigned char* decrypt(unsigned char* msg, unsigned char* key, unsigned char* iv, size_t length) {
+unsigned char* decrypt(unsigned char* cipherText, unsigned char* key, unsigned char* iv, size_t length) {
+	unsigned char* plaintext = (unsigned char*) malloc(512);
+	memset(plaintext, 0, 512);
+	size_t cipherTextLen = length;
+
+	int numWritten;
+	EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+	if (EVP_DecryptInit_ex(ctx, EVP_aes_256_ctr(), 0, key, iv) != 1) {
+		ERR_print_errors_fp(stderr);
+	}
+
+	if (EVP_DecryptUpdate(ctx, plaintext, &numWritten, cipherText, cipherTextLen) != 1) {
+		ERR_print_errors_fp(stderr);
+	}
+
+	EVP_CIPHER_CTX_free(ctx);
+	return plaintext;
 
 }
 
@@ -384,6 +427,8 @@ unsigned char* decrypt(unsigned char* msg, unsigned char* key, unsigned char* iv
 static void msg_typed(char *line)
 {
 	string mymsg;
+	//initialize cipher string
+	unsigned char* cipher;
 	if (!line) {
 		// Ctrl-D pressed on empty line
 		should_exit = true;
@@ -393,9 +438,21 @@ static void msg_typed(char *line)
 		if (*line) {
 			add_history(line);
 			mymsg = string(line);
-			transcript.push_back("me: " + mymsg);
+			transcript.push_back("you: " + mymsg);
 			ssize_t nbytes;
-			if ((nbytes = send(sockfd,line,mymsg.length(),0)) == -1)
+
+			//generate hmac from line
+			char* hmacString = hmac(line);
+			char* buffer = (char*) malloc(strlen(hmacString) + strlen(line) + 1);
+			strcpy(buffer, hmacString);
+			strcat(buffer, line);
+			int bufferSize = strlen(buffer);
+
+			//encrypt message
+			cipher = encrypt(buffer, aes_key, iv_val);
+
+
+			if ((nbytes = send(sockfd,cipher,bufferSize,0)) == -1)
 				error("send failed");
 		}
 		pthread_mutex_lock(&qmx);
@@ -688,10 +745,32 @@ void* recvMsg(void*)
 			should_exit = true;
 			return 0;
 		}
-		pthread_mutex_lock(&qmx);
-		mq.push_back({false,msg,"Mr Thread",msg_win});
-		pthread_cond_signal(&qcv);
-		pthread_mutex_unlock(&qmx);
+
+		//decrypt message
+		unsigned char* plaintext = decrypt((unsigned char*)msg, aes_key, iv_val, nbytes);
+		size_t msg_size = strlen((char*) plaintext) - 128;
+
+		char B_hmac_str[129];
+		char message[msg_size+1];
+		strncpy(B_hmac_str, (char*) plaintext, 128);
+		B_hmac_str[128] = '\0';
+		strncpy(message, (char*) plaintext + 128, msg_size);
+		message[msg_size] = '\0';
+
+		char* A_hmac_str = hmac(message);
+
+		if (strcmp(A_hmac_str, B_hmac_str) == 0) {
+			pthread_mutex_lock(&qmx);
+			mq.push_back({false,message,"ur crush",msg_win});
+			pthread_cond_signal(&qcv);
+			pthread_mutex_unlock(&qmx);
+		} else {
+			pthread_mutex_lock(&qmx);
+			mq.push_back({false,"ERROR: There is a mismatch with the HMACs!","System",msg_win});
+			pthread_cond_signal(&qcv);
+			pthread_mutex_unlock(&qmx);
+		}
+		
 	}
 	return 0;
 }
